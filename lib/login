@@ -24,6 +24,29 @@ class LoginScreen extends StatefulWidget {
   _LoginScreenState createState() => _LoginScreenState();
 }
 
+class method {
+  static showtoast( String msg, BuildContext context) {
+    Toast.show(msg,
+        duration: Toast.lengthLong,
+        gravity: Toast.bottom,
+        backgroundColor: Colors.white,
+        webTexColor:  Colors.white);
+  }
+
+  static textproperty({var FontSize}) {
+    return TextStyle(fontSize: FontSize, fontFamily: '', color: Colors.white);
+  }
+
+  static  getdeviceId() {
+    if (Platform.isIOS) {
+      return '1';
+    } else if (Platform.isAndroid) {
+      return '0';
+    }
+  }
+}
+
+
 class _LoginScreenState extends State<LoginScreen> {
   TextEditingController email = TextEditingController();
   TextEditingController password = TextEditingController();
