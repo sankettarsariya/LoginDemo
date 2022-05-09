@@ -1,0 +1,503 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:math';
+import 'package:bow/Utils/Constant.dart';
+import 'package:bow/Utils/FacebookLogin.dart';
+import 'package:bow/Utils/GoogleLogin.dart';
+import 'package:bow/Utils/network_dio.dart';
+import 'package:bow/components/Input_Field_Simple.dart';
+import 'package:bow/components/Round_MaterialButton.dart';
+import 'package:bow/components/Round_RaisedButton.dart';
+import 'package:bow/screens/CabinBookingScreen.dart';
+import 'package:device_id/device_id.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'ForgotPasswordScreen.dart';
+import 'MainScreen.dart';
+import 'SignUpScreen.dart';
+
+class LoginScreen extends StatefulWidget {
+  @override
+  _LoginScreenState createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  TextEditingController email = TextEditingController();
+  TextEditingController password = TextEditingController();
+  bool _observer = true;
+  late String deviceId;
+  late String userRole;
+  var apiLongitude = 0.00;
+  var apiLatitude = 0.00;
+  late String devicetype;
+  String _storageKeyMobileToken = 'token';
+  var userdata;
+
+  late final FirebaseMessaging _firebaseMessaging ;
+
+  @override
+  void initState() {
+    super.initState();
+    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+    ));
+    getUserData();
+    getTokenz();
+    deviceInfo();
+    _getLocation();
+    getdeviceId();
+  }
+
+  Future getUserData() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    userRole = prefs.getString('role')!;
+    print('My role $userRole');
+  }
+
+  getTokenz() async {
+    _storageKeyMobileToken = (await _firebaseMessaging.getToken())!;
+    print("getTokenz fcm token -->$_storageKeyMobileToken");
+  }
+
+   getdeviceId() {
+    if (Platform.isIOS) {
+      return devicetype = '2';
+    } else if (Platform.isAndroid) {
+      return devicetype = '1';
+    }
+  }
+
+  _getLocation() async {
+    try {
+      Position position = await Geolocator
+          .getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      debugPrint('location: ${position.latitude}');
+
+      position.longitude != null
+          ? apiLongitude = position.longitude
+          : apiLongitude = 0.00;
+      position.latitude != null
+          ? apiLatitude = position.latitude
+          : apiLatitude = 0.00;
+    } on PlatformException catch (e) {
+      apiLongitude = 0.00;
+      apiLatitude = 0.00;
+    }
+  }
+
+  Future login() async {
+    var data = ({
+      'email': email.text,
+      'password': password.text,
+    //  'user_role': userRole??'1',
+      'longitude': apiLongitude.toString(),
+      'latitude': apiLatitude.toString() ,
+      'device_token': _storageKeyMobileToken,
+      'device_type': devicetype,
+      'device_id': deviceId ,
+    });
+    NetworkDioHttp.setDynamicHeader(endPoint: BASE_URL);
+    var response = await NetworkDioHttp.postDioHttpMethod(context,
+        url: LOGIN, data: jsonEncode(data));
+    if (response != null) {
+      setState(() {
+        userdata = json.decode(response['body']);
+      });
+      if (userdata != null) {
+        if (userdata['status'] == 1) {
+          await setUserData();
+          method.showtoast('${userdata['message']}', context);
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => CabinBooking(),
+            ),
+          );
+        } else {
+          method.showtoast('${userdata['message']}', context);
+        }
+        print('login--->' + response['body'].toString());
+      }
+    } else {
+      method.showtoast('Something went wrong', context);
+    }
+  }
+
+   Future socialFBLogin({required int type}) async{
+
+    var fbData =  await facebookLogin(context);
+
+    var username = fbData['name'];
+    var thirdPartyId = fbData['id'];
+    var userEmail = fbData['email'];
+    var profilePic = fbData['url'];
+
+    socialLogin(username: username,thirdPartyId: thirdPartyId,userEmail: userEmail,profilePic: profilePic,type: '1');
+
+  }
+
+  Future socialLogin({required String username,required String thirdPartyId,required String userEmail,required String profilePic,required String type}) async{
+
+    var data = ({
+      'thirdparty_id': thirdPartyId.toString(),
+      'longitude': apiLongitude.toString(),
+      'latitude': apiLatitude.toString() ,
+      'first_name': username ,
+      'password': '123',
+      'device_token': _storageKeyMobileToken,
+      'device_type': method.getdeviceId(),
+      'device_id': deviceId ,
+      'user_role': '2',
+      'email': userEmail ,
+      'profile_pic': profilePic ,
+      'login_type':type.toString(),
+    });
+
+    NetworkDioHttp.setDynamicHeader(endPoint: BASE_URL);
+
+    var response = await NetworkDioHttp.postDioHttpMethod(
+        context, url: LOGIN_BY_THIRD_PARTY, data: jsonEncode(data));
+
+    if(response != null){
+      setState(() {
+        userdata = response['body'];
+      });
+
+      if (userdata != null) {
+        if (userdata['status'] == 1) {
+          await setUserData();
+
+          method.showtoast('${userdata['message']}', context);
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => CabinBooking(),
+            ),
+          );
+        } else {
+          method.showtoast('${userdata['message']}', context);
+        }
+        type == '1' ? print('login fb--->' + response['body'].toString()) : print('login google--->' + response['body'].toString());
+      }
+
+    }else{
+      method.showtoast('Something went wrong', context);
+    }
+  }
+
+  Future setUserData() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    prefs.setString('userid', userdata['data']['id'].toString());
+    prefs.setString(
+        'restaurantid', userdata['data']['restaurent_id'].toString());
+    prefs.setString('fcmtoken', _storageKeyMobileToken);
+    prefs.setString('userprofile', userdata['data']['profile_pic']);
+    prefs.setString('role', userdata['data']['user_role'].toString());
+    prefs.setString('useremail', userdata['data']['email']);
+    prefs.setString('username',
+        userdata['data']['first_name'].toString() /*userdata['data']['last_name']!=null?userdata['data']['last_name'].toString():''*/);
+    prefs.setString('latitude', userdata['data']['latitude'].toString());
+    prefs.setString('longitude', userdata['data']['longitude'].toString());
+    prefs.setString('token', userdata['data']['user_token']);
+    prefs.setString('login', userdata.toString());
+  }
+
+  deviceInfo() async {
+    deviceId = await DeviceId.getID;
+  }
+
+  static const _chars =
+      'AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz1234567890';
+  Random _rnd = Random();
+
+  String getRandomString(int length) => String.fromCharCodes(Iterable.generate(
+      length, (_) => _chars.codeUnitAt(_rnd.nextInt(_chars.length))));
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        height: MediaQuery.of(context).size.height,
+        decoration: BoxDecoration(
+          image: DecorationImage(
+              image: AssetImage('assets/ic_background.png'), fit: BoxFit.cover),
+        ),
+        child: SingleChildScrollView(
+          child: Container(
+            width: MediaQuery.of(context).size.width,
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 100,
+                ),
+                Text(
+                  'Cabin Booking',
+                  style: kBigWhiteRegular,
+                ),
+                SizedBox(
+                  height: 10,
+                ),
+                Text(
+                  'Luxury Cabins In Broken Bow Oklahoma \nFor You And Your Family',
+                  style: kButtonStyleWhiteRegular,
+                  textAlign: TextAlign.center,
+                ),
+                SizedBox(
+                  height: 30.0,
+                ),
+                Container(
+                  margin: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+                  child: Card(
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(25)),
+                    elevation: 5,
+                    child: Padding(
+                      padding:
+                          EdgeInsets.symmetric(vertical: 20, horizontal: 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Login',
+                            style: kTextStyleBlackHeader,
+                          ),
+                          InputFieldSimple(
+                            controller: email,
+                            hintText: 'Email',
+                            prefix: '',
+                            type: TextInputType.text, readonly: true,
+                          ),
+                          passwordField(),
+                          Padding(
+                              padding: EdgeInsets.only(bottom: 15.0),
+                              child: forgotPass()),
+                          RoundMaterialButton(
+                            width: MediaQuery.of(context).size.width,
+                            height: 50,
+                            color: kPrimaryColor,
+                            circular: 10.0,
+                            onPress: () {
+                              FocusScope.of(context).requestFocus(FocusNode());
+                              if (_isValidate(
+                                email: email.text,
+                                password: password.text,
+                              )) {
+                                login();
+                              }
+                            },
+                            textStyle: kButtonStyleWhiteBold,
+                            buttonText: 'Login',
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  height: 5,
+                ),
+                signUp(),
+                SizedBox(
+                  height: 10,
+                ),
+                Container(
+                  margin: EdgeInsets.symmetric(horizontal: 15),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Divider(
+                          color: Colors.white,
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        child: Text(
+                          'Or',
+                          style: kButtonStyleWhiteMedium,
+                        ),
+                      ),
+                      Expanded(
+                        child: Divider(
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  height: 20,
+                ),
+                RoundRaisedButton(
+                  height: 45,
+                  width: MediaQuery.of(context).size.width - 30,
+                  color: kBlueColor,
+                  textStyle: kButtonStyleWhiteMedium,
+                  buttonText: 'Connect with Facebook',
+                  icon: 'ic_facebook.png',
+                  circular: 8.0,
+                  onPress: () {
+                    socialFBLogin(type: 2);
+                  },
+                ),
+                SizedBox(
+                  height: 15,
+                ),
+                RoundRaisedButton(
+                  height: 45,
+                  width: MediaQuery.of(context).size.width - 30,
+                  color: kRedColor,
+                  textStyle: kButtonStyleWhiteMedium,
+                  buttonText: 'Connect with Google',
+                  icon: 'ic_google.png',
+                  circular: 8.0,
+                  onPress: () {
+                     googleLogin(context).then((value) => {
+                      if (value != null){
+                          print('google login---->'+value.toString()),
+                          socialLogin(
+                                  profilePic: value.photoUrl.toString() ,
+                                  thirdPartyId: value.id ,
+                                  userEmail: value.email ,
+                                  username: value.displayName.toString() ,
+                                  type: '2')
+                            }
+                        });
+                  },
+                ),
+                Visibility(
+                  visible: method.getdeviceId() == '1' ? true : false,
+                  child: Column(
+                    children: [
+                      SizedBox(
+                        height: 15,
+                      ),
+                      Container(
+                        width: MediaQuery.of(context).size.width - 20,
+/*                          child: SignInWithAppleButton(
+                          height: 45,
+                          borderRadius: BorderRadius.circular(8.0),
+                          onPressed: () {
+                            appleSignIn().then((credential) => {
+                                  print('apple login---->' +
+                                      credential.toString()),
+                                  socialLogin(
+                                      profilePic: 'profilePic',
+                                      thirdPartyId:
+                                          credential.userIdentifier ?? '',
+                                      userEmail: credential.email == null
+                                          ? credential.userIdentifier
+                                                  .substring(0, 8) +
+                                              '@gmail.com'
+                                          : credential.email,
+                                      username: credential.givenName == null
+                                          ? 'user@' +
+                                              credential.userIdentifier
+                                                  .substring(0, 4)
+                                          : credential.givenName,
+                                      type: '3')
+                                });
+                          },
+                        ),*/
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(
+                  height: 40,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Row signUp() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: <Widget>[
+        FlatButton(
+          padding: EdgeInsets.all(0),
+          child: Text(
+            'Don\'t have an account? Sign up',
+            style: kButtonStyleWhiteRegular,
+          ),
+          onPressed: () {
+            Navigator.pushReplacement(context,
+                MaterialPageRoute(builder: (context) => SignUpScreen()));
+          },
+        ),
+      ],
+    );
+  }
+
+  Row forgotPass() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      children: <Widget>[
+        FlatButton(
+          padding: EdgeInsets.all(0),
+          child: Text(
+            'Forgot Password?',
+            style: kInputTextStyleBlack,
+          ),
+          onPressed: () {
+            Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (context) => ForgotPasswordScreen()));
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget passwordField() {
+    Size size = MediaQuery.of(context).size;
+    return Container(
+      margin: EdgeInsets.symmetric(vertical: 10),
+      width: size.width * 0.9,
+      height: 55,
+      child: TextFormField(
+        enabled: true,
+        readOnly: false,
+        obscureText: _observer,
+        keyboardType: TextInputType.text,
+        style: kInputTextStyleBlack,
+        controller: password,
+        autofocus: false,
+        cursorColor: Colors.black,
+        decoration: InputDecoration(
+          isDense: true,
+          labelText: 'Password',
+          labelStyle: kInputTextStyleBlack,
+          focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Color(0xff000000))),
+          enabledBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Color(0xffdfdfdf))),
+        ),
+      ),
+    );
+  }
+
+  bool _isValidate({
+    var email,
+    var password,
+  }) {
+    if (email.isEmpty) {
+      method.showtoast('Enter your E-mail', context);
+      return false;
+    }
+
+    if (password.isEmpty) {
+      method.showtoast('Enter your password', context);
+      return false;
+    }
+
+    return true;
+  }
+}
